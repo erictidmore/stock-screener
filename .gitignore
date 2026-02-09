@@ -1,0 +1,25 @@
+# Secrets
+.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+venv/
+env/
+.venv/
+
+# Cache & data
+.china_filter_cache.json
+data/*.csv
+
+# Logs
+*.log
+
+# IDE & OS
+.claude/
+.idea/
+.vscode/
+.DS_Store
