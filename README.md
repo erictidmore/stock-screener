@@ -131,7 +131,15 @@ python3 dashboard.py
 open http://localhost:8051
 ```
 
-CRT-styled web dashboard with real-time pipeline visualization. Click **RUN SCAN** to trigger the full screener pipeline — results stream in live via WebSocket.
+CRT-styled web dashboard with real-time pipeline visualization. Runs fully autonomous — autopilot scans at 9:20 AM ET, rescans until market open, resets daily. Breaking news monitor polls for new headlines every 60s and flashes alerts in real-time.
+
+| Feature | Detail |
+|:--------|:-------|
+| **Autopilot** | 24/7 autonomous — scan @9:20 AM, rescan pre-market, daily reset @8 AM, skip weekends |
+| **Breaking News** | Polls Alpaca News API every 60s for watchlist symbols, flashes new headlines |
+| **Pipeline Tracker** | Animated stage progression with per-symbol progress |
+| **WebSocket** | Real-time state push to all connected clients (1s interval) |
+| **CRT Effects** | Scanlines, morphing orbs, flicker, glow, JetBrains Mono |
 
 ---
 
@@ -158,6 +166,7 @@ stock-screener/
   <img src="https://img.shields.io/badge/Alpaca_Markets-Screener_·_News_·_Bars-D97757?style=flat-square&labelColor=111111" />
   <img src="https://img.shields.io/badge/SEC_EDGAR-Company_Filings-E8A04E?style=flat-square&labelColor=111111" />
   <img src="https://img.shields.io/badge/pandas-Data_Processing-00ff41?style=flat-square&logo=pandas&logoColor=00ff41&labelColor=111111" />
+  <img src="https://img.shields.io/badge/FastAPI-WebSocket_Dashboard-D97757?style=flat-square&logo=fastapi&logoColor=D97757&labelColor=111111" />
 </p>
 
 ---
