@@ -22,14 +22,14 @@
 
 ### `>_ PIPELINE`
 
-```
-ALPACA SCREENER API  ──>  PRICE/CHANGE FILTER  ──>  WARRANT EXCLUSION
-  Pull top 20 gainers       $1-$22, 20%+ move        regex: WS WT PR U R
-                                                             |
-              FINAL WATCHLIST  <──  NEWS CATALYST  <──  SEC EDGAR CHINA
-                                     48h lookback        biz addr + inc state
-                                     Alpaca News API     CN, HK, Cayman, BVI
-```
+| Stage | Method | Source |
+|:------|:-------|:-------|
+| **Alpaca Screener** | Pull top 20 gainers | Alpaca Markets API |
+| **Price/Change Filter** | `$1-$22`, `20%+` move | Screener data |
+| **Warrant Exclusion** | Regex on suffix `WS\|WT\|PR\|U\|R` | Ticker symbol |
+| **SEC EDGAR China Filter** | Biz address `AND` incorporation | SEC EDGAR API |
+| **News Catalyst Check** | 48h lookback, filters roundups | Alpaca News API |
+| **Final Watchlist** | Symbols that pass all filters | -- |
 
 ---
 
