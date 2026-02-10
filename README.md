@@ -160,29 +160,6 @@ open http://localhost:8051
 
 CRT-styled web dashboard with real-time pipeline visualization. Click **RUN SCAN** to trigger the full screener pipeline — results stream in live via WebSocket.
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  ~ screener v1.0 █              ET 09:45 AM  ●          │
-├──────────────────────────────────────────────────────────┤
-│  ┌─ PIPELINE ────────────────────────────────────────┐  │
-│  │  ● GAINERS → ● FILTER → ● CHINA → ● NEWS → DONE │  │
-│  │  [═══════════════════════▒▒▒▒▒▒▒▒▒]  4/6         │  │
-│  │                  [ RUN SCAN ]                      │  │
-│  └───────────────────────────────────────────────────┘  │
-│  ┌─ RESULTS ────────────┐  ┌─ NEWS CATALYSTS ────────┐ │
-│  │  # Sym  Price  Chg%  │  │  BRLS:                  │ │
-│  │  1 BRLS $1.04 +117%  │  │   [9:02] Borealis...   │ │
-│  │  2 PLBY $1.98  +52%  │  │  PLBY:                  │ │
-│  │  3 HUMA $5.22  +38%  │  │   [8:45] Playboy...    │ │
-│  └───────────────────────┘  └─────────────────────────┘ │
-│  ┌─ LOG ─────────────────────────────────────────────┐  │
-│  │  > Pulling top 20 gainers...                       │  │
-│  │  > Filtering: 6 passed                             │  │
-│  │  > SEC EDGAR: BRLS -> OK (A6/DE)                  │  │
-│  └───────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────┘
-```
-
 ---
 
 ### `>_ STRUCTURE`
