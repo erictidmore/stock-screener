@@ -14,6 +14,10 @@
   <code>Filters warrants, Chinese shells, and noise. Built for premarket.</code>
 </p>
 
+<p align="center">
+  <img src="dashboard.png" alt="Stock Screener Dashboard" width="800"/>
+</p>
+
 ---
 
 ### `>_ PIPELINE`
@@ -144,11 +148,49 @@ cp .env.example .env
 
 ---
 
+### `>_ DASHBOARD`
+
+```bash
+# launch the web dashboard
+python3 dashboard.py
+
+# open in browser
+open http://localhost:8051
+```
+
+CRT-styled web dashboard with real-time pipeline visualization. Click **RUN SCAN** to trigger the full screener pipeline — results stream in live via WebSocket.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  ~ screener v1.0 █              ET 09:45 AM  ●          │
+├──────────────────────────────────────────────────────────┤
+│  ┌─ PIPELINE ────────────────────────────────────────┐  │
+│  │  ● GAINERS → ● FILTER → ● CHINA → ● NEWS → DONE │  │
+│  │  [═══════════════════════▒▒▒▒▒▒▒▒▒]  4/6         │  │
+│  │                  [ RUN SCAN ]                      │  │
+│  └───────────────────────────────────────────────────┘  │
+│  ┌─ RESULTS ────────────┐  ┌─ NEWS CATALYSTS ────────┐ │
+│  │  # Sym  Price  Chg%  │  │  BRLS:                  │ │
+│  │  1 BRLS $1.04 +117%  │  │   [9:02] Borealis...   │ │
+│  │  2 PLBY $1.98  +52%  │  │  PLBY:                  │ │
+│  │  3 HUMA $5.22  +38%  │  │   [8:45] Playboy...    │ │
+│  └───────────────────────┘  └─────────────────────────┘ │
+│  ┌─ LOG ─────────────────────────────────────────────┐  │
+│  │  > Pulling top 20 gainers...                       │  │
+│  │  > Filtering: 6 passed                             │  │
+│  │  > SEC EDGAR: BRLS -> OK (A6/DE)                  │  │
+│  └───────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
+
 ### `>_ STRUCTURE`
 
 ```
 stock-screener/
 ├── screener.py       main entry — orchestrates the pipeline
+├── dashboard.py      web dashboard — CRT-styled FastAPI server
 ├── filters.py        warrant · china · news · price filters
 ├── fetch.py          historical 1-min bar downloader (SIP)
 ├── config.py         credentials + filter defaults
