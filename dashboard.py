@@ -43,12 +43,14 @@ ET = pytz.timezone("US/Eastern")
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     asyncio.create_task(_periodic_push())
+    asyncio.create_task(_news_monitor())
     if cfg.AUTO_ENABLED:
         asyncio.create_task(_autopilot())
     _log("Dashboard started")
     _log(f"Stock Screener {cfg.VERSION}")
     if cfg.AUTO_ENABLED:
         _log("AUTOPILOT ENABLED — scan @9:20 AM, rescan until open, daily reset @8 AM")
+    _log("Breaking news monitor active")
     yield
 
 
@@ -64,7 +66,10 @@ state = {
     "scan_results": [],
     "log_lines": [],
     "scan_time": None,
+    "breaking_news": [],         # [{symbol, headline, source, time, ts}]
 }
+
+_seen_headlines: set = set()  # track headline hashes to detect new ones
 
 connected_clients: List[WebSocket] = []
 _scan_lock = threading.Lock()
@@ -103,6 +108,7 @@ async def push_state():
         "scan_results": state["scan_results"],
         "log_lines": state["log_lines"][-50:],
         "scan_time": state["scan_time"],
+        "breaking_news": state["breaking_news"],
     })
 
 
@@ -111,6 +117,101 @@ async def _periodic_push():
         if connected_clients:
             await push_state()
         await asyncio.sleep(1)
+
+
+# ============================================================================
+# Breaking news monitor
+# ============================================================================
+def _check_news_sync():
+    """Poll Alpaca News API for new headlines on watchlist symbols."""
+    symbols = [g["symbol"] for g in state["scan_results"]]
+    if not symbols:
+        return
+
+    try:
+        from alpaca.data.historical.news import NewsClient
+        from alpaca.data.requests import NewsRequest
+        from datetime import timedelta
+        from filters import _ROUNDUP_RE
+
+        now = datetime.now(ET)
+        start = now - timedelta(hours=1)
+
+        client = NewsClient(cfg.APCA_API_KEY_ID, cfg.APCA_API_SECRET_KEY)
+
+        for sym in symbols:
+            try:
+                req = NewsRequest(symbols=sym, start=start, limit=5,
+                                  include_content=False, exclude_contentless=False)
+                news_set = client.get_news(request_params=req)
+                articles = news_set.data.get("news", [])
+            except Exception:
+                continue
+
+            for a in articles:
+                # Skip generic roundups
+                if _ROUNDUP_RE.search(a.headline):
+                    continue
+
+                h_key = f"{sym}:{a.headline}"
+                if h_key not in _seen_headlines:
+                    _seen_headlines.add(h_key)
+                    t_str = a.created_at.astimezone(ET).strftime("%I:%M %p")
+                    entry = {
+                        "symbol": sym,
+                        "headline": a.headline,
+                        "source": a.source,
+                        "time": t_str,
+                        "ts": time.time(),
+                    }
+                    state["breaking_news"].insert(0, entry)
+                    # Keep only last 20
+                    state["breaking_news"] = state["breaking_news"][:20]
+                    _log(f"BREAKING: {sym} — {a.headline[:80]}")
+
+            time.sleep(0.1)
+    except Exception as e:
+        _log(f"News monitor error: {e}")
+
+
+async def _news_monitor():
+    """Background loop: check for breaking news every 60 seconds."""
+    # Seed seen headlines on first run so we don't flash old news
+    await asyncio.sleep(5)
+    if state["scan_results"]:
+        await asyncio.to_thread(_seed_seen_headlines)
+    while True:
+        if state["scan_results"]:
+            await asyncio.to_thread(_check_news_sync)
+        await asyncio.sleep(60)
+
+
+def _seed_seen_headlines():
+    """Pre-populate seen headlines so only truly new ones flash."""
+    symbols = [g["symbol"] for g in state["scan_results"]]
+    if not symbols:
+        return
+    try:
+        from alpaca.data.historical.news import NewsClient
+        from alpaca.data.requests import NewsRequest
+        from datetime import timedelta
+
+        now = datetime.now(ET)
+        start = now - timedelta(hours=2)
+        client = NewsClient(cfg.APCA_API_KEY_ID, cfg.APCA_API_SECRET_KEY)
+
+        for sym in symbols:
+            try:
+                req = NewsRequest(symbols=sym, start=start, limit=10,
+                                  include_content=False, exclude_contentless=False)
+                news_set = client.get_news(request_params=req)
+                for a in news_set.data.get("news", []):
+                    _seen_headlines.add(f"{sym}:{a.headline}")
+            except Exception:
+                continue
+            time.sleep(0.1)
+    except Exception:
+        pass
 
 
 # ============================================================================
@@ -299,6 +400,15 @@ def _run_scan_sync():
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     return DASHBOARD_HTML
+
+
+@app.post("/api/scan")
+async def api_scan():
+    if state["status"] == "scanning":
+        return JSONResponse({"error": "scan already in progress"}, status_code=409)
+    thread = threading.Thread(target=_run_scan_sync, daemon=True)
+    thread.start()
+    return JSONResponse({"ok": True})
 
 
 @app.websocket("/ws")
@@ -642,6 +752,64 @@ body::before {
   min-width: 30px;
 }
 
+/* ===== BREAKING NEWS ===== */
+.breaking-bar {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: rgba(232,149,111,0.08);
+  border: 1px solid rgba(232,149,111,0.3);
+  border-left: 3px solid var(--red);
+  animation: flash-in 0.6s ease-out;
+  margin-bottom: 16px;
+}
+.breaking-bar.active { display: flex; }
+@keyframes flash-in {
+  0% { background: rgba(232,149,111,0.3); border-color: var(--red-bright); box-shadow: 0 0 20px rgba(232,149,111,0.4); }
+  100% { background: rgba(232,149,111,0.08); border-color: rgba(232,149,111,0.3); box-shadow: none; }
+}
+.breaking-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--red-bright);
+  text-shadow: 0 0 8px rgba(232,149,111,0.6);
+  white-space: nowrap;
+  animation: breaking-pulse 2s ease-in-out infinite;
+}
+@keyframes breaking-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.breaking-content {
+  flex: 1;
+  overflow: hidden;
+}
+.breaking-item {
+  font-size: 10px;
+  line-height: 1.6;
+  animation: breaking-slide 0.5s ease-out;
+}
+@keyframes breaking-slide {
+  0% { transform: translateY(-10px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.breaking-item .b-sym {
+  color: var(--accent-bright);
+  font-weight: 700;
+  text-shadow: 0 0 8px var(--accent-glow);
+}
+.breaking-item .b-time {
+  color: var(--cyan);
+  text-shadow: 0 0 6px rgba(0,240,255,0.4);
+  font-size: 9px;
+}
+.breaking-item .b-hl {
+  color: var(--text-bright);
+  text-shadow: none;
+}
+
 /* ===== TABLES ===== */
 table {
   width: 100%;
@@ -763,6 +931,12 @@ tr:hover td { background: rgba(217,119,87,0.04); }
 </div>
 
 <div class="container">
+
+  <!-- BREAKING NEWS BAR -->
+  <div id="breakingBar" class="breaking-bar full-width">
+    <span class="breaking-tag">BREAKING</span>
+    <div id="breakingContent" class="breaking-content"></div>
+  </div>
 
   <!-- PIPELINE PANEL -->
   <div class="panel full-width">
@@ -941,6 +1115,7 @@ function handleState(s) {
   renderPipeline(s);
   renderResults(s.scan_results || []);
   renderNews(s.scan_results || []);
+  renderBreaking(s.breaking_news || []);
   renderLog(s.log_lines || []);
 
   updateSchedule();
@@ -1068,6 +1243,41 @@ function renderLog(log) {
   });
   el.innerHTML = html;
   el.scrollTop = el.scrollHeight;
+}
+
+let lastBreakingCount = 0;
+function renderBreaking(news) {
+  const bar = document.getElementById('breakingBar');
+  const content = document.getElementById('breakingContent');
+
+  // Only show items from last 10 minutes
+  const now = Date.now() / 1000;
+  const recent = news.filter(n => now - n.ts < 600);
+
+  if (!recent.length) {
+    bar.classList.remove('active');
+    lastBreakingCount = 0;
+    return;
+  }
+
+  // Flash animation on new items
+  if (recent.length > lastBreakingCount && lastBreakingCount > 0) {
+    bar.style.animation = 'none';
+    bar.offsetHeight; // trigger reflow
+    bar.style.animation = 'flash-in 0.6s ease-out';
+  }
+  lastBreakingCount = recent.length;
+
+  bar.classList.add('active');
+  let html = '';
+  recent.slice(0, 5).forEach(n => {
+    html += '<div class="breaking-item">'
+      + '<span class="b-sym">' + escHtml(n.symbol) + '</span> '
+      + '<span class="b-time">[' + escHtml(n.time) + ']</span> '
+      + '<span class="b-hl">' + escHtml(n.headline) + '</span>'
+      + '</div>';
+  });
+  content.innerHTML = html;
 }
 
 function escHtml(s) {
