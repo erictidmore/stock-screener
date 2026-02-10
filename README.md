@@ -153,8 +153,7 @@ stock-screener/
 ├── fetch.py          historical 1-min bar downloader (SIP)
 ├── config.py         credentials + filter defaults
 ├── requirements.txt
-├── .env.example      API key template
-└── data/             downloaded CSVs (gitignored)
+└── .env.example      API key template
 ```
 
 ---
