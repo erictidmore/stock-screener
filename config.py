@@ -40,6 +40,16 @@ SEC_USER_AGENT = "StockScreener admin@localhost"
 CHINA_COUNTRY_CODES = {"F4", "G6", "E9", "K6"}
 
 # ====================================================================
+# AUTOPILOT SCHEDULE (24/7 autonomous operation)
+# ====================================================================
+AUTO_ENABLED = True
+AUTO_RESET_MINUTE = 480          # 8:00 AM ET — clear previous session
+AUTO_SCAN_MINUTE = 560           # 9:20 AM ET — first scan
+AUTO_RESCAN_INTERVAL = 5         # Minutes between rescans (pre-market)
+MARKET_OPEN_MINUTE = 570         # 9:30 AM ET — stop rescanning
+MARKET_CLOSE_MINUTE = 960        # 4:00 PM ET — end of day
+
+# ====================================================================
 # VERSION
 # ====================================================================
 VERSION = "v1.0.0"

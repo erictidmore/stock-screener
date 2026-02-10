@@ -43,8 +43,12 @@ ET = pytz.timezone("US/Eastern")
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     asyncio.create_task(_periodic_push())
+    if cfg.AUTO_ENABLED:
+        asyncio.create_task(_autopilot())
     _log("Dashboard started")
     _log(f"Stock Screener {cfg.VERSION}")
+    if cfg.AUTO_ENABLED:
+        _log("AUTOPILOT ENABLED — scan @9:20 AM, rescan until open, daily reset @8 AM")
     yield
 
 
@@ -107,6 +111,89 @@ async def _periodic_push():
         if connected_clients:
             await push_state()
         await asyncio.sleep(1)
+
+
+# ============================================================================
+# Autopilot scheduler (24/7 autonomous operation)
+# ============================================================================
+async def _autopilot():
+    """
+    Autonomous daily cycle:
+      8:00 AM ET  — reset daily state (clear previous session)
+      9:20 AM ET  — auto-scan (full pipeline with news + China filter)
+      9:20–9:29   — rescan every 5 min (price/change only, carry news data)
+      9:30 AM ET  — market open, stop rescanning
+      4:00 PM ET  — end of day, mark idle
+    Skips weekends. Checks every 30 seconds.
+    """
+    scan_done_today = False
+    reset_done_today = False
+    eod_done_today = False
+    last_trading_date = None
+    last_rescan_minute = 0
+
+    while True:
+        try:
+            now = datetime.now(ET)
+            current_minute = now.hour * 60 + now.minute
+            weekday = now.weekday()  # 0=Mon ... 6=Sun
+
+            # New day detection
+            today_str = now.strftime("%Y-%m-%d")
+            if last_trading_date != today_str:
+                last_trading_date = today_str
+                scan_done_today = False
+                reset_done_today = False
+                eod_done_today = False
+                last_rescan_minute = 0
+
+            # Skip weekends
+            if weekday >= 5:
+                await asyncio.sleep(30)
+                continue
+
+            # 8:00 AM ET: Daily reset
+            if current_minute >= cfg.AUTO_RESET_MINUTE and not reset_done_today:
+                reset_done_today = True
+                _log("AUTOPILOT: Daily reset — clearing previous session")
+                state["scan_results"] = []
+                state["pipeline_stage"] = None
+                state["pipeline_progress"] = None
+                state["scan_time"] = None
+                if state["status"] != "scanning":
+                    state["status"] = "idle"
+
+            # 9:20 AM ET: First auto-scan
+            if (current_minute >= cfg.AUTO_SCAN_MINUTE
+                    and not scan_done_today
+                    and state["status"] != "scanning"):
+                scan_done_today = True
+                last_rescan_minute = current_minute
+                _log("AUTOPILOT: Triggering market scan")
+                thread = threading.Thread(target=_run_scan_sync, daemon=True)
+                thread.start()
+
+            # 9:20–9:29: Rescan every N minutes (fast refresh)
+            if (scan_done_today
+                    and current_minute < cfg.MARKET_OPEN_MINUTE
+                    and current_minute >= cfg.AUTO_SCAN_MINUTE
+                    and state["status"] != "scanning"
+                    and current_minute - last_rescan_minute >= cfg.AUTO_RESCAN_INTERVAL):
+                last_rescan_minute = current_minute
+                _log("AUTOPILOT: Rescanning (pre-market refresh)")
+                thread = threading.Thread(target=_run_scan_sync, daemon=True)
+                thread.start()
+
+            # 4:00 PM ET: End of day
+            if current_minute >= cfg.MARKET_CLOSE_MINUTE and not eod_done_today:
+                eod_done_today = True
+                _log("AUTOPILOT: Market closed — day complete")
+
+        except Exception as e:
+            _log(f"AUTOPILOT ERROR: {e}")
+            traceback.print_exc()
+
+        await asyncio.sleep(30)
 
 
 # ============================================================================
@@ -212,15 +299,6 @@ def _run_scan_sync():
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     return DASHBOARD_HTML
-
-
-@app.post("/api/scan")
-async def api_scan():
-    if state["status"] == "scanning":
-        return JSONResponse({"error": "scan already in progress"}, status_code=409)
-    thread = threading.Thread(target=_run_scan_sync, daemon=True)
-    thread.start()
-    return JSONResponse({"ok": True})
 
 
 @app.websocket("/ws")
@@ -427,6 +505,15 @@ body::before {
   50% { box-shadow: 0 0 8px var(--accent-bright), 0 0 16px var(--accent), 0 0 30px rgba(217,119,87,0.5); }
 }
 
+.next-schedule {
+  font-size: 10px;
+  color: var(--accent-dim);
+  letter-spacing: 0.5px;
+}
+.next-schedule .sch-label { color: var(--accent-dim); }
+.next-schedule .sch-time { color: var(--accent); }
+.next-schedule .sch-active { color: var(--accent-bright); text-shadow: 0 0 6px var(--accent-glow); }
+
 /* ===== LAYOUT ===== */
 .container {
   width: 100%;
@@ -555,41 +642,6 @@ body::before {
   min-width: 30px;
 }
 
-/* Scan button */
-.scan-btn-wrap {
-  display: flex;
-  justify-content: center;
-  padding: 12px 0 16px;
-}
-.scan-btn {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: var(--accent-bright);
-  background: var(--bg);
-  border: 1px solid var(--accent);
-  padding: 8px 28px;
-  cursor: pointer;
-  text-shadow: 0 0 8px var(--accent-glow);
-  box-shadow: 0 0 8px rgba(217,119,87,0.2), inset 0 0 6px rgba(217,119,87,0.05);
-  transition: all 0.2s;
-}
-.scan-btn:hover {
-  background: rgba(217,119,87,0.08);
-  box-shadow: 0 0 14px rgba(217,119,87,0.4), inset 0 0 10px rgba(217,119,87,0.1);
-  border-color: var(--accent-bright);
-}
-.scan-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-  animation: btn-pulse 2s ease-in-out infinite;
-}
-@keyframes btn-pulse {
-  0%, 100% { box-shadow: 0 0 8px rgba(217,119,87,0.2), inset 0 0 6px rgba(217,119,87,0.05); }
-  50% { box-shadow: 0 0 16px rgba(217,119,87,0.5), inset 0 0 10px rgba(217,119,87,0.1); }
-}
-
 /* ===== TABLES ===== */
 table {
   width: 100%;
@@ -702,6 +754,7 @@ tr:hover td { background: rgba(217,119,87,0.04); }
 <div class="topbar">
   <div class="topbar-left">
     <div class="logo"><span class="prompt">~</span> screener <span class="ver">""" + cfg.VERSION + """</span> <span class="cursor-blink">&#x2588;</span></div>
+    <span id="nextSchedule" class="next-schedule"></span>
   </div>
   <div class="topbar-right">
     <span id="clock" class="clock"></span>
@@ -732,9 +785,6 @@ tr:hover td { background: rgba(217,119,87,0.04); }
       <div id="progressBar" class="scan-progress" style="display:none;">
         <div class="progress-track"><div id="progressFill" class="progress-fill" style="width:0%"></div></div>
         <span id="progressLabel" class="progress-label"></span>
-      </div>
-      <div class="scan-btn-wrap">
-        <button id="scanBtn" class="scan-btn" onclick="runScan()">[ RUN SCAN ]</button>
       </div>
     </div>
   </div>
@@ -788,6 +838,78 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
+// ===== SCHEDULE DISPLAY =====
+const AUTO_ENABLED = """ + ("true" if cfg.AUTO_ENABLED else "false") + """;
+const SCAN_MINUTE = """ + str(cfg.AUTO_SCAN_MINUTE) + """;
+const MARKET_OPEN_MINUTE = """ + str(cfg.MARKET_OPEN_MINUTE) + """;
+const MARKET_CLOSE_MINUTE = """ + str(cfg.MARKET_CLOSE_MINUTE) + """;
+
+function minuteToTime(m) {
+  let h = Math.floor(m / 60);
+  let mm = m % 60;
+  let ampm = h >= 12 ? 'PM' : 'AM';
+  if (h > 12) h -= 12;
+  if (h === 0) h = 12;
+  return h + ':' + (mm < 10 ? '0' : '') + mm + ' ' + ampm;
+}
+
+function formatCountdown(diffMs) {
+  if (diffMs <= 0) return 'now';
+  const totalSec = Math.floor(diffMs / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  if (h > 0) return h + 'h ' + m + 'm';
+  if (m > 0) return m + 'm';
+  return '<1m';
+}
+
+function updateSchedule() {
+  const el = document.getElementById('nextSchedule');
+  if (!AUTO_ENABLED) { el.textContent = ''; return; }
+
+  const status = (lastState && lastState.status) || 'idle';
+  const now = new Date();
+  const etStr = now.toLocaleString('en-US', {timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit'});
+  const etParts = etStr.split(':');
+  const currentMin = parseInt(etParts[0]) * 60 + parseInt(etParts[1]);
+  const weekday = new Date(now.toLocaleString('en-US', {timeZone: 'America/New_York'})).getDay();
+
+  if (status === 'scanning') {
+    el.innerHTML = '<span class="sch-active">scanning market...</span>';
+    return;
+  }
+
+  // Weekend
+  if (weekday === 0 || weekday === 6) {
+    const daysUntilMon = weekday === 6 ? 2 : 1;
+    el.innerHTML = '<span class="sch-label">next scan</span> <span class="sch-time">Mon ' + minuteToTime(SCAN_MINUTE) + ' ET</span>';
+    return;
+  }
+
+  let parts = [];
+
+  if (currentMin < SCAN_MINUTE) {
+    const scanMs = (SCAN_MINUTE - currentMin) * 60000;
+    parts.push('<span class="sch-label">scan</span> <span class="sch-time">' + formatCountdown(scanMs) + '</span>');
+  }
+  if (currentMin < MARKET_OPEN_MINUTE) {
+    const openMs = (MARKET_OPEN_MINUTE - currentMin) * 60000;
+    parts.push('<span class="sch-label">open</span> <span class="sch-time">' + formatCountdown(openMs) + '</span>');
+  } else if (currentMin < MARKET_CLOSE_MINUTE) {
+    const closeMs = (MARKET_CLOSE_MINUTE - currentMin) * 60000;
+    parts.push('<span class="sch-label">close</span> <span class="sch-time">' + formatCountdown(closeMs) + '</span>');
+  }
+  if (currentMin >= MARKET_CLOSE_MINUTE) {
+    const isFri = weekday === 5;
+    const nextDay = isFri ? 'Mon' : 'tomorrow';
+    parts.push('<span class="sch-label">next scan</span> <span class="sch-time">' + nextDay + ' ' + minuteToTime(SCAN_MINUTE) + ' ET</span>');
+  }
+
+  el.innerHTML = parts.length ? parts.join(' <span class="sch-label">&middot;</span> ') : '';
+}
+setInterval(updateSchedule, 5000);
+updateSchedule();
+
 // ===== WEBSOCKET =====
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -813,16 +935,6 @@ function connectWS() {
 }
 connectWS();
 
-// ===== SCAN BUTTON =====
-function runScan() {
-  const btn = document.getElementById('scanBtn');
-  btn.disabled = true;
-  btn.textContent = '[ SCANNING... ]';
-  fetch('/api/scan', { method: 'POST' })
-    .then(r => r.json())
-    .catch(() => { btn.disabled = false; btn.textContent = '[ RUN SCAN ]'; });
-}
-
 // ===== RENDER STATE =====
 function handleState(s) {
   lastState = s;
@@ -831,15 +943,7 @@ function handleState(s) {
   renderNews(s.scan_results || []);
   renderLog(s.log_lines || []);
 
-  // Update scan button
-  const btn = document.getElementById('scanBtn');
-  if (s.status === 'scanning') {
-    btn.disabled = true;
-    btn.textContent = '[ SCANNING... ]';
-  } else {
-    btn.disabled = false;
-    btn.textContent = '[ RUN SCAN ]';
-  }
+  updateSchedule();
 
   // Scan time
   const scanTimeEl = document.getElementById('scanTime');
