@@ -23,39 +23,12 @@
 ### `>_ PIPELINE`
 
 ```
- ┌─────────────────────────────────────────────────────┐
- │  ALPACA SCREENER API                                │
- │  Pull top 20 gainers                                │
- └──────────────────────┬──────────────────────────────┘
-                        │
-                        ▼
- ┌─────────────────────────────────────────────────────┐
- │  PRICE / CHANGE FILTER          $1–$22 · 20%+ move │
- └──────────────────────┬──────────────────────────────┘
-                        │
-                        ▼
- ┌─────────────────────────────────────────────────────┐
- │  WARRANT EXCLUSION        regex: WS WT PR U R      │
- └──────────────────────┬──────────────────────────────┘
-                        │
-                        ▼
- ┌─────────────────────────────────────────────────────┐
- │  SEC EDGAR CHINA FILTER                             │
- │  Cross-ref business address + incorporation state   │
- │  Flags: CN · HK · Cayman · BVI                     │
- └──────────────────────┬──────────────────────────────┘
-                        │
-                        ▼
- ┌─────────────────────────────────────────────────────┐
- │  NEWS CATALYST CHECK                                │
- │  48h lookback · filters generic roundups            │
- │  Alpaca News API                                    │
- └──────────────────────┬──────────────────────────────┘
-                        │
-                        ▼
-           ┌────────────────────────┐
-           │   FINAL WATCHLIST      │
-           └────────────────────────┘
+ALPACA SCREENER API  ──>  PRICE/CHANGE FILTER  ──>  WARRANT EXCLUSION
+  Pull top 20 gainers       $1-$22, 20%+ move        regex: WS WT PR U R
+                                                             |
+              FINAL WATCHLIST  <──  NEWS CATALYST  <──  SEC EDGAR CHINA
+                                     48h lookback        biz addr + inc state
+                                     Alpaca News API     CN, HK, Cayman, BVI
 ```
 
 ---
