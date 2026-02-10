@@ -3,7 +3,7 @@
 dashboard.py — Web Dashboard for Stock Screener
 =================================================
 Single-command entry point: python3 dashboard.py
-Opens FastAPI server on localhost:8050 with CRT-styled dashboard.
+Opens FastAPI server on localhost:8051 with CRT-styled dashboard.
 
 Endpoints:
     GET  /           -> Dashboard HTML (embedded)
